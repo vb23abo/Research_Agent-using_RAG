@@ -1,1 +1,1 @@
-"""Router modules for the arXiv Paper Curator API."""
+"""Router modules for the Research Agent API."""

@@ -4,7 +4,7 @@ import pytest
 from polyfactory.factories.pydantic_factory import ModelFactory
 from src.config import Settings
 from src.schemas.ask import AskRequest, PaperSource
-from src.schemas.paper import PaperCreate, PaperResponse
+from src.schemas.arxiv.paper import PaperCreate, PaperResponse
 
 
 @pytest.fixture
