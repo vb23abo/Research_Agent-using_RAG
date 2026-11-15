@@ -146,6 +146,8 @@ Airflow credentials are written to `airflow/simple_auth_manager_passwords.json.g
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/v1/health` | Service health |
+| `GET` | `/api/v1/papers/` | Stored papers |
+| `GET` | `/api/v1/papers/{arxiv_id}` | One stored paper |
 | `POST` | `/api/v1/hybrid-search/` | BM25 / hybrid chunk search |
 | `POST` | `/api/v1/ask` | Classic RAG Q&A |
 | `POST` | `/api/v1/stream` | Streaming RAG (SSE) |
