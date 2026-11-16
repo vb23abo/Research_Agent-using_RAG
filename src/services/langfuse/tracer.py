@@ -1,10 +1,13 @@
 """Simple, efficient Langfuse tracing utility for RAG pipeline."""
 
+import logging
 import time
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional
 
 from .client import LangfuseTracer
+
+logger = logging.getLogger(__name__)
 
 
 class RAGTracer:
@@ -15,16 +18,32 @@ class RAGTracer:
 
     @contextmanager
     def trace_request(self, user_id: str, query: str):
-        """Main request trace context manager."""
-        trace = None
+        """Main request trace context manager.
+
+        A tracing failure yields no trace and does not fail the user request.
+        """
         try:
-            with self.tracer.trace_rag_request(
+            manager = self.tracer.trace_rag_request(
                 query=query, user_id=user_id, session_id=f"session_{user_id}", metadata={"simplified_tracing": True}
-            ) as trace:
-                yield trace
+            )
+            trace = manager.__enter__()
+        except Exception as e:
+            logger.warning("Langfuse tracing unavailable; continuing without it: %s", e)
+            yield None
+            return
+
+        try:
+            yield trace
         finally:
+            try:
+                manager.__exit__(None, None, None)
+            except Exception as e:
+                logger.warning("Langfuse trace close failed: %s", e)
             if trace:
-                self.tracer.flush()
+                try:
+                    self.tracer.flush()
+                except Exception as e:
+                    logger.warning("Langfuse flush failed: %s", e)
 
     @contextmanager
     def trace_embedding(self, trace, query: str):
