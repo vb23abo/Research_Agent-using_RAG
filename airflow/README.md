@@ -34,4 +34,4 @@ airflow/
 3. Chunk the text, embed it, and index it in OpenSearch.
 4. Write a short report and delete PDFs under `/tmp` that are older than 30 days.
 
-The UI is at http://localhost:8080. The generated password file is `airflow/simple_auth_manager_passwords.json.generated`.
+The UI is at http://localhost:8080. The first start creates an admin user with username `admin` and password `admin`.

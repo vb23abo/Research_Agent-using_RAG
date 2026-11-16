@@ -77,7 +77,7 @@ For product scope and technical design, see:
 | Search | OpenSearch 2.19 (BM25 + kNN) |
 | Embeddings | Jina AI |
 | LLM | Ollama (local) |
-| Orchestration | Apache Airflow 3 |
+| Orchestration | Apache Airflow 2.10.3 |
 | PDF parsing | Docling |
 | Agents | LangGraph / LangChain |
 | Cache | Redis 7 |
@@ -137,7 +137,7 @@ First boot can take a few minutes while images pull and services become healthy.
 | OpenSearch | http://localhost:9200 | Search API |
 | Ollama | http://localhost:11434 | Local LLM |
 
-Airflow credentials are written to `airflow/simple_auth_manager_passwords.json.generated` on first start.
+Airflow UI login is `admin` / `admin`, created by `airflow/entrypoint.sh` on first start.
 
 ---
 

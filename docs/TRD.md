@@ -5,7 +5,7 @@
 **Author:** Vijayalaxmi Bhambure ([@vb23abo](https://github.com/vb23abo))  
 **Version:** 1.0  
 **Status:** Active  
-**Last updated:** 2026-09-19  
+**Last updated:** 2026-11-16  
 **License:** MIT  
 **Companion:** [PRD](PRD.md)
 
@@ -13,7 +13,7 @@
 
 ## 1. Purpose
 
-This document specifies the technical architecture, components, interfaces, data model, and non-functional requirements for arXiv Paper Curator. It is the engineering counterpart to the PRD and reflects the current implemented system.
+This document specifies the technical architecture, components, interfaces, data model, and non-functional requirements for arXiv Paper Curator. It is the engineering counterpart to the PRD and describes the system in this repository.
 
 ---
 
@@ -110,8 +110,10 @@ On API startup (`main.py` lifespan):
 ### 4.2 Ingestion (Airflow)
 
 **DAG:** `arxiv_paper_ingestion`  
+**Image:** Apache Airflow 2.10.3 (`airflow/Dockerfile`)  
 **Schedule:** `0 6 * * 1-5` (Mon–Fri 06:00 UTC)  
 **Max active runs:** 1  
+**UI login:** `admin` / `admin`, created by `airflow/entrypoint.sh`  
 
 | Task | Function | Responsibility |
 |------|----------|----------------|
@@ -132,6 +134,7 @@ On API startup (`main.py` lifespan):
 | OCR | Off by default |
 | Tables | Structure extraction on by default |
 | Output | Raw text, sections JSON, references when available |
+| Execution | `DoclingParser.parse_pdf` is synchronous. `PDFParserService` runs it with `asyncio.to_thread`. |
 
 ### 4.4 Chunking
 
@@ -194,7 +197,7 @@ If embedding generation fails, API callers fall back to BM25.
 | `POST /api/v1/ask` | Synchronous JSON response |
 | `POST /api/v1/stream` | SSE token/chunk stream |
 
-Tracing: Langfuse spans for embedding, search, generation.  
+Tracing: Langfuse spans for embedding, search, and generation. If Langfuse is disabled or a trace call fails, the request still returns an answer.  
 Caching: Redis keyed by normalized request parameters; TTL hours from `REDIS__` settings (default 6h).
 
 ### 4.9 Agentic RAG (LangGraph)
@@ -271,7 +274,16 @@ GET /api/v1/health
 
 Returns service liveness / dependency status used by Compose healthchecks.
 
-### 5.2 Hybrid search
+### 5.2 Stored papers
+
+```
+GET /api/v1/papers/
+GET /api/v1/papers/{arxiv_id}
+```
+
+Lists papers stored in PostgreSQL, or returns one paper. `{arxiv_id}` matches `NNNN.NNNNN` with an optional version suffix.
+
+### 5.3 Hybrid search
 
 ```
 POST /api/v1/hybrid-search/
@@ -280,7 +292,7 @@ POST /api/v1/hybrid-search/
 **Request (conceptual):** `query`, `size`, `from_`, `categories`, `use_hybrid`, `min_score`, `latest_papers`  
 **Response:** list of hits (`arxiv_id`, title, authors, abstract, score, chunk fields, highlights, …)
 
-### 5.3 Classic ask
+### 5.4 Classic ask
 
 ```
 POST /api/v1/ask
@@ -297,7 +309,7 @@ Content-Type: application/json
 
 **Response:** `query`, `answer`, `sources[]`, `chunks_used`, `search_mode`
 
-### 5.4 Streaming ask
+### 5.5 Streaming ask
 
 ```
 POST /api/v1/stream
@@ -305,7 +317,7 @@ POST /api/v1/stream
 
 Same request body as ask; response is `text/event-stream`.
 
-### 5.5 Agentic ask
+### 5.6 Agentic ask
 
 ```
 POST /api/v1/ask-agentic
@@ -314,7 +326,7 @@ POST /api/v1/ask-agentic
 Same core request fields as ask.  
 **Response adds:** `reasoning_steps[]`, `retrieval_attempts`, optional `trace_id`.
 
-### 5.6 Feedback (optional)
+### 5.7 Feedback (optional)
 
 ```
 POST /api/v1/...  # feedback payload with trace_id, score, comment
@@ -582,5 +594,5 @@ Custom exceptions: `src/exceptions.py` (`MetadataFetchingException`, `PipelineEx
 
 - [PRD](PRD.md)  
 - [README](../README.md)  
-- [LICENSE](../LICENSE) — no open-source license; all rights reserved  
+- [LICENSE](../LICENSE) — MIT  
 - OpenAPI: `http://localhost:8000/docs`  

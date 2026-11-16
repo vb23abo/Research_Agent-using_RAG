@@ -5,7 +5,7 @@
 **Author:** Vijayalaxmi Bhambure ([@vb23abo](https://github.com/vb23abo))  
 **Version:** 1.0  
 **Status:** Active  
-**Last updated:** 2026-09-19  
+**Last updated:** 2026-11-16  
 **License:** MIT  
 
 ---
@@ -306,4 +306,4 @@ Detailed technical NFRs live in the [TRD](TRD.md). Product-level expectations:
 
 - [README](../README.md) — setup and overview  
 - [TRD](TRD.md) — technical requirements and design  
-- [LICENSE](../LICENSE) — no open-source license; all rights reserved  
+- [LICENSE](../LICENSE) — MIT  
