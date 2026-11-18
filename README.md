@@ -4,6 +4,8 @@
 
 Ingests academic papers from arXiv, indexes them with hybrid search (BM25 + vectors), and answers research questions with cited sources — via REST API, Gradio UI, or Telegram.
 
+**Demo:** [Local chat recording](recordings/arxiv-rag-demo.mov) — one question answered from three indexed papers (WeightBench, game-rule agents, and EEG/ECG), using hybrid search and three PDF sources.
+
 ---
 
 ## Features
