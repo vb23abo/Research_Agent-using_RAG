@@ -5,7 +5,7 @@
 **Author:** Vijayalaxmi Bhambure ([@vb23abo](https://github.com/vb23abo))  
 **Version:** 1.0  
 **Status:** Active  
-**Last updated:** 2026-11-16  
+**Last updated:** 2026-11-26  
 **License:** MIT  
 **Companion:** [PRD](PRD.md)
 
@@ -125,12 +125,16 @@ On API startup (`main.py` lifespan):
 
 **Core library path:** `src/services/metadata_fetcher.py` orchestrates fetch/parse/store; indexing via `src/services/indexing/`.
 
+The arXiv client sends `User-Agent: arXiv-Paper-Curator/0.1.0 (local research agent)` on API and PDF requests.
+
+On 26 November 2026 the fetch and index task functions were called directly for one `cs.AI` paper dated 25 November 2026 (`2611.34942`). The PDF was parsed, the paper was stored, and 12 chunks were indexed. The Airflow scheduler and web UI were not started for that check.
+
 ### 4.3 PDF parsing
 
 | Item | Spec |
 |------|------|
 | Engine | Docling |
-| Limits | `PDF_PARSER__MAX_PAGES` (default 30), `MAX_FILE_SIZE_MB` (20) |
+| Limits | `PDF_PARSER__MAX_PAGES` (default 30), `MAX_FILE_SIZE_MB` (20). A longer PDF is skipped and the paper is stored from its abstract. |
 | OCR | Off by default |
 | Tables | Structure extraction on by default |
 | Output | Raw text, sections JSON, references when available |
@@ -186,7 +190,7 @@ If embedding generation fails, API callers fall back to BM25.
 | Default model | `llama3.2:1b` (overridable per request) |
 | Timeout | `OLLAMA_TIMEOUT` (default 300s) |
 | Prompts | `src/services/ollama/prompts/` |
-| Client | `src/services/ollama/client.py` |
+| Client | `src/services/ollama/client.py`. `get_langchain_model` returns a `ChatOllama` client for the agent graph. |
 
 ### 4.8 Classic RAG
 
@@ -219,7 +223,11 @@ Caching: Redis keyed by normalized request parameters; TTL hours from `REDIS__` 
 
 **Config (`GraphConfig`):** model, top-k, hybrid flag, max retrieval attempts, guardrail threshold.
 
-**Response extras:** `reasoning_steps`, `retrieval_attempts`, optional `trace_id`.
+**Response extras:** `reasoning_steps`, `retrieval_attempts`, optional `trace_id`, optional `rewritten_query`.
+
+Source links are the PDF URLs carried on the retrieval tool messages. The request `model` is passed into the graph. If Langfuse cannot open or close a trace, the answer is still returned.
+
+Checked on 26 November 2026 with `llama3.2:1b`. A weight-space programming question scored 75/100, retrieved once, graded the chunks relevant, and cited `https://arxiv.org/pdf/2611.18553v1.pdf`. A chocolate-cake question scored 40/100 and took the out-of-scope path. The guardrail threshold is 60.
 
 ### 4.10 Cache (Redis)
 
@@ -239,7 +247,7 @@ Self-hosted Langfuse v3 stack in Compose (web, worker, Postgres, Redis, ClickHou
 |------|------|
 | Integration | `src/services/langfuse/` |
 | Use | Trace RAG and agentic pipelines; optional feedback by `trace_id` |
-| Toggle | Enable/disable via env |
+| Toggle | A client is created only when `enabled` is true and both the public and secret keys are set. Empty or placeholder keys leave tracing off. Q&A does not wait on Langfuse. |
 
 ### 4.12 Telegram bot
 
@@ -247,7 +255,7 @@ Self-hosted Langfuse v3 stack in Compose (web, worker, Postgres, Redis, ClickHou
 |------|------|
 | Library | `python-telegram-bot` 21.x |
 | Mode | Polling (dev); webhook supported via config |
-| Enable | `TELEGRAM__ENABLED=true` + `TELEGRAM__BOT_TOKEN` |
+| Enable | `TELEGRAM__ENABLED=true` plus a real `TELEGRAM__BOT_TOKEN`. The default is off. The 26 November check did not start the bot. |
 | Lifecycle | Started/stopped in FastAPI lifespan |
 | Features | Commands (`/start`, `/help`, `/ask`, `/search`, `/settings`, `/status`, …), free-text RAG, Markdown formatting |
 
@@ -323,16 +331,16 @@ Same request body as ask; response is `text/event-stream`.
 POST /api/v1/ask-agentic
 ```
 
-Same core request fields as ask.  
-**Response adds:** `reasoning_steps[]`, `retrieval_attempts`, optional `trace_id`.
+Same core request fields as ask. The `model` field is passed to the agent.  
+**Response adds:** `reasoning_steps[]`, `retrieval_attempts`, optional `trace_id`, optional `rewritten_query`. `sources` are PDF URL strings.
 
 ### 5.7 Feedback (optional)
 
 ```
-POST /api/v1/...  # feedback payload with trace_id, score, comment
+POST /api/v1/feedback
 ```
 
-Records user feedback against a Langfuse trace when configured.
+Body: `trace_id`, `score`, optional `comment`. Returns 503 when Langfuse has no client.
 
 OpenAPI is the source of truth at runtime: `/docs`.
 
@@ -520,7 +528,13 @@ uv run pytest --cov=src --cov-report=html
 # or: make test / make test-cov
 ```
 
-Env for tests: `.env.test` (see `pyproject.toml` pytest config).
+Pytest loads `.env.test` (`pyproject.toml`). The project `.env` points Redis at the Compose hostname `redis`. From the host, run:
+
+```bash
+REDIS__HOST=127.0.0.1 uv run pytest
+```
+
+On 26 November 2026 that command passed 120 tests: 91 unit, 26 API, and 3 integration. The integration file made one live arXiv request and checked OpenSearch health.
 
 ---
 
@@ -563,21 +577,23 @@ Custom exceptions: `src/exceptions.py` (`MetadataFetchingException`, `PipelineEx
 3. No first-class API auth in v1.  
 4. Telegram sessions are in-memory (not multi-replica safe).  
 5. Hybrid search requires external Jina key.  
-6. Corpus limited by configured category, `max_results`, and PDF parse limits.  
-7. Langfuse Compose defaults include development secrets — must be rotated for any shared environment.
+6. Corpus limited by configured category, `max_results`, and PDF parse limits. No retention policy deletes old papers.  
+7. Langfuse Compose defaults include development secrets — must be rotated for any shared environment.  
+8. The weekday DAG is defined, and its fetch and index functions have been run once outside the scheduler. A scheduled run from the Airflow UI has not been recorded.  
+9. The small default model can score a short research question near the guardrail threshold of 60. A score under 60 is refused.
 
 ---
 
 ## 14. Compliance with PRD
 
-| PRD goal | Technical coverage |
-|----------|-------------------|
-| G1 Ingestion | Airflow DAG + MetadataFetcher + Postgres |
-| G2 Hybrid retrieval | OpenSearch hybrid index + Jina + RRF |
-| G3 Cited Q&A | `/ask`, `/stream` + source URL construction |
-| G4 Agentic behavior | LangGraph nodes in `services/agents/` |
-| G5 Interfaces | FastAPI, Gradio, Telegram |
-| G6 Ops basics | Redis, Langfuse, healthchecks, tests, Compose |
+| PRD goal | Technical coverage | Checked on 26 November 2026 |
+|----------|-------------------|------------------------------|
+| G1 Ingestion | Airflow DAG + MetadataFetcher + Postgres | Fetch and index functions stored and indexed one paper. The scheduler was not started. |
+| G2 Hybrid retrieval | OpenSearch hybrid index + Jina + RRF | Hybrid search returned the new paper and the earlier demo papers. |
+| G3 Cited Q&A | `/ask`, `/stream` + source URL construction | `/ask` cited the new paper. The three-paper demo is recorded. |
+| G4 Agentic behavior | LangGraph nodes in `services/agents/` | One in-domain answer with a PDF link, and one out-of-domain refusal. |
+| G5 Interfaces | FastAPI, Gradio, Telegram | API and the recorded Gradio chat. Telegram was left off. |
+| G6 Ops basics | Redis, Langfuse, healthchecks, tests, Compose | Health was ok. 120 tests passed. Langfuse was left off. |
 
 ---
 

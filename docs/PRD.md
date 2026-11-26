@@ -5,7 +5,7 @@
 **Author:** Vijayalaxmi Bhambure ([@vb23abo](https://github.com/vb23abo))  
 **Version:** 1.0  
 **Status:** Active  
-**Last updated:** 2026-11-16  
+**Last updated:** 2026-11-26  
 **License:** MIT  
 
 ---
@@ -58,12 +58,12 @@ A production-oriented RAG system that:
 
 | ID | Goal | Success signal |
 |----|------|----------------|
-| G1 | Automate daily paper ingestion for a configured arXiv category | DAG completes successfully on schedule; papers appear in Postgres + OpenSearch |
+| G1 | Automate daily paper ingestion for a configured arXiv category | Fetch and index tasks store a paper in Postgres and OpenSearch. The weekday schedule is the Airflow DAG. |
 | G2 | Enable accurate hybrid retrieval over paper chunks | Relevant papers/chunks returned for research queries |
 | G3 | Deliver cited Q&A over ingested literature | Answers include arXiv PDF source links |
-| G4 | Support agentic retrieval (guardrails, grading, rewrite) | Off-topic queries refused; weak retrieval triggers rewrite |
-| G5 | Provide usable interfaces for developers and end users | API docs + Gradio + optional Telegram work end-to-end |
-| G6 | Provide production ops basics | Health checks, Redis cache, Langfuse traces, tests |
+| G4 | Support agentic retrieval (guardrails, grading, rewrite) | An in-domain question is answered with a source. An obvious out-of-domain question is refused. |
+| G5 | Provide usable interfaces for developers and end users | API docs and Gradio work. Telegram is optional and stays off without a token. |
+| G6 | Provide production ops basics | Health checks, Redis cache, and tests. Langfuse traces appear only after real keys are set. |
 
 ### 2.2 Non-goals (v1)
 
@@ -285,12 +285,27 @@ Detailed technical NFRs live in the [TRD](TRD.md). Product-level expectations:
 
 ---
 
-## 11. Open questions
+## 11. Checked locally
 
-1. Should v1.1 add API authentication by default?
-2. Preferred default Ollama model for quality vs. resource tradeoff?
-3. Should Telegram be enabled in Compose by default or remain opt-in?
-4. Target corpus size / retention policy for indexed papers?
+Checked on 26 November 2026 with the API, Postgres, OpenSearch, Redis, and Ollama `llama3.2:1b` running. The Airflow scheduler, Telegram, and Langfuse were not started.
+
+| Check | Result |
+|-------|--------|
+| Unit tests | 91 passed |
+| API tests | 26 passed |
+| Integration tests | 3 passed |
+| Classic RAG | One recorded question cited three indexed papers |
+| Agentic RAG | A weight-space programming question scored 75/100 and cited `2611.18553`. A cake-recipe question scored 40/100 and was refused |
+| Ingestion tasks | `fetch_daily_papers` and `index_papers_hybrid` stored `2611.34942` and indexed 12 chunks. `/ask` then cited that PDF |
+
+These choices are already in the code:
+
+- The default generation model is `llama3.2:1b`.
+- Telegram stays off unless `TELEGRAM__ENABLED=true` and a bot token is set.
+- The API has no authentication in v1.
+- A PDF longer than 30 pages is stored from its abstract and is not parsed.
+
+No retention rule is configured for the indexed corpus. That remains an operator choice.
 
 ---
 

@@ -15,7 +15,7 @@ Ingests academic papers from arXiv, indexes them with hybrid search (BM25 + vect
 - **Classic RAG** — Retrieve relevant chunks and generate grounded answers with a local LLM (Ollama)
 - **Agentic RAG** — LangGraph workflow with guardrails, document grading, and query rewriting
 - **Streaming answers** — Server-Sent Events for real-time response delivery
-- **Observability** — Langfuse tracing for embed → search → generate pipelines
+- **Observability** — Langfuse tracing for embed → search → generate, when keys are set. Answers still return if tracing is off.
 - **Response caching** — Redis exact-match cache for repeated queries
 - **Interfaces** — FastAPI docs, Gradio chat UI, optional Telegram bot
 
@@ -97,7 +97,7 @@ For product scope and technical design, see:
 - [UV](https://docs.astral.sh/uv/getting-started/installation/)
 - 8GB+ RAM, 20GB+ free disk
 - Jina API key (for hybrid/semantic search)
-- Optional: Telegram bot token, Langfuse keys (self-hosted defaults work locally)
+- Optional: a Telegram bot token, and real Langfuse keys if you want traces shown
 
 ---
 
@@ -111,7 +111,7 @@ cd Research_Agent-using_RAG
 # 2. Configure
 cp .env.example .env
 # Set JINA_API_KEY (required for hybrid search)
-# Optionally set TELEGRAM__BOT_TOKEN and Langfuse keys
+# Telegram and Langfuse stay off until you set a real token and real keys
 
 # 3. Install dependencies
 uv sync
@@ -236,9 +236,11 @@ Or without Make:
 
 ```bash
 docker compose up --build -d
-uv run pytest
+REDIS__HOST=127.0.0.1 uv run pytest
 uv run python gradio_launcher.py
 ```
+
+On the host, Redis is `127.0.0.1`. The Compose `.env` uses the hostname `redis`, which only resolves inside Docker. Set `REDIS__HOST` for pytest so the API tests can reach the running Redis.
 
 ---
 
@@ -252,7 +254,9 @@ The `arxiv_paper_ingestion` Airflow DAG (weekdays 06:00 UTC by default):
 4. Chunk, embed, and index into OpenSearch (hybrid)  
 5. Generate a daily report and clean temp PDFs  
 
-Trigger manually from the Airflow UI if you need an immediate backfill.
+Trigger manually from the Airflow UI if you need an immediate backfill. PDFs longer than 30 pages are stored from the abstract and are not parsed.
+
+The fetch and index task functions were run once on 26 November 2026 for a single `cs.AI` paper (`2611.34942`) without starting the Airflow scheduler. That run stored the paper and indexed 12 chunks. A later `/ask` cited `https://arxiv.org/pdf/2611.34942.pdf`.
 
 ---
 
@@ -268,6 +272,19 @@ Trigger manually from the Airflow UI if you need an immediate backfill.
 | Hard reset | `docker compose down -v && docker compose up --build -d` |
 
 ---
+
+## What was checked locally
+
+Checked on 26 November 2026 against the core stack (API, Postgres, OpenSearch, Redis, Ollama `llama3.2:1b`). The Airflow scheduler, Telegram, and Langfuse were not started.
+
+| Check | Result |
+|-------|--------|
+| Unit tests (`tests/unit`) | 91 passed |
+| API tests (`tests/api`) | 26 passed |
+| Integration tests (`tests/integration`) | 3 passed: one live arXiv query, OpenSearch health, settings load |
+| Classic RAG | The [demo recording](recordings/arxiv-rag-demo.mov) shows one question answered from three papers, with three PDF sources |
+| Agentic RAG | A weight-space programming question scored 75/100, retrieved a paper, and cited `https://arxiv.org/pdf/2611.18553v1.pdf`. A chocolate-cake question scored 40/100 and was refused |
+| Ingestion tasks | One new paper fetched, parsed, stored, and indexed, then cited by `/ask` |
 
 ## Author
 

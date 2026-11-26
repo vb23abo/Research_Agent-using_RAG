@@ -35,3 +35,5 @@ airflow/
 4. Write a short report and delete PDFs under `/tmp` that are older than 30 days.
 
 The UI is at http://localhost:8080. The first start creates an admin user with username `admin` and password `admin`.
+
+On 26 November 2026, `fetch_daily_papers` and `index_papers_hybrid` were run directly, with `max_results` set to 1, for the `cs.AI` papers of 25 November 2026. Paper `2611.34942` was parsed, stored, and indexed as 12 chunks. The Airflow scheduler was not started for that check. A PDF over 30 pages is stored from the abstract.
