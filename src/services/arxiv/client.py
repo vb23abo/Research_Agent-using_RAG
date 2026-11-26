@@ -13,6 +13,7 @@ from src.exceptions import ArxivAPIException, ArxivAPITimeoutError, ArxivParseEr
 from src.schemas.arxiv.paper import ArxivPaper
 
 logger = logging.getLogger(__name__)
+ARXIV_USER_AGENT = "arXiv-Paper-Curator/0.1.0 (local research agent)"
 
 
 class ArxivClient:
@@ -113,7 +114,10 @@ class ArxivClient:
 
             self._last_request_time = time.time()
 
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            async with httpx.AsyncClient(
+                timeout=self.timeout_seconds,
+                headers={"User-Agent": ARXIV_USER_AGENT},
+            ) as client:
                 response = await client.get(url)
                 response.raise_for_status()
                 xml_data = response.text
@@ -188,7 +192,10 @@ class ArxivClient:
 
             self._last_request_time = time.time()
 
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            async with httpx.AsyncClient(
+                timeout=self.timeout_seconds,
+                headers={"User-Agent": ARXIV_USER_AGENT},
+            ) as client:
                 response = await client.get(url)
                 response.raise_for_status()
                 xml_data = response.text
@@ -226,7 +233,7 @@ class ArxivClient:
         url = f"{self.base_url}?{urlencode(params, quote_via=quote, safe=safe)}"
 
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(headers={"User-Agent": ARXIV_USER_AGENT}) as client:
                 response = await client.get(url)
                 response.raise_for_status()
                 xml_data = response.text
@@ -455,7 +462,10 @@ class ArxivClient:
 
         for attempt in range(max_retries):
             try:
-                async with httpx.AsyncClient(timeout=float(self.timeout_seconds)) as client:
+                async with httpx.AsyncClient(
+                    timeout=float(self.timeout_seconds),
+                    headers={"User-Agent": ARXIV_USER_AGENT},
+                ) as client:
                     async with client.stream("GET", url) as response:
                         response.raise_for_status()
                         with open(path, "wb") as f:

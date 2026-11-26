@@ -203,21 +203,34 @@ class AgenticRAGService:
                 name="agentic_rag_request",
             )
 
-        # Use proper context manager pattern
+        # Use proper context manager pattern. A dead Langfuse host must not fail the answer.
         async def _execute_with_trace():
             """Execute the workflow with or without tracing context."""
-            if trace is not None:
-                with trace as trace_obj:
-                    trace_obj.update(
-                        input={"query": query},
-                        metadata=metadata,
-                        user_id=user_id,
-                        session_id=f"session_{user_id}",
-                    )
-                    logger.debug(f"Trace created: {trace_obj}")
-                    return await self._run_workflow(query, model_to_use, user_id, trace_obj)
-            else:
+            if trace is None:
                 return await self._run_workflow(query, model_to_use, user_id, None)
+
+            trace_obj = None
+            try:
+                trace_obj = trace.__enter__()
+                trace_obj.update(
+                    input={"query": query},
+                    metadata=metadata,
+                    user_id=user_id,
+                    session_id=f"session_{user_id}",
+                )
+                logger.debug(f"Trace created: {trace_obj}")
+            except Exception as trace_error:
+                logger.warning(f"Langfuse trace setup failed, continuing without it: {trace_error}")
+                trace_obj = None
+
+            try:
+                return await self._run_workflow(query, model_to_use, user_id, trace_obj)
+            finally:
+                if trace_obj is not None:
+                    try:
+                        trace.__exit__(None, None, None)
+                    except Exception as trace_error:
+                        logger.warning(f"Langfuse trace close failed: {trace_error}")
 
         try:
             return await _execute_with_trace()
@@ -359,7 +372,21 @@ class AgenticRAGService:
             elif isinstance(source, dict):
                 sources.append(source)
 
-        return sources
+        if sources:
+            return sources
+
+        # The retriever stores PDF links in tool-message metadata. The graph
+        # does not copy those into relevant_sources, so read them from the messages.
+        import re
+
+        seen = []
+        for message in result.get("messages", []):
+            content = getattr(message, "content", "")
+            text = content if isinstance(content, str) else str(content)
+            for url in re.findall(r"https://arxiv\.org/pdf/[0-9.]+(?:v\d+)?\.pdf", text):
+                if url not in seen:
+                    seen.append(url)
+        return [{"url": url} for url in seen]
 
     def _extract_reasoning_steps(self, result: dict) -> List[str]:
         """Extract reasoning steps from graph result."""

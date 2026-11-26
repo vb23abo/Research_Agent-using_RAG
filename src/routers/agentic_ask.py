@@ -5,6 +5,19 @@ from src.schemas.api.ask import AgenticAskResponse, AskRequest, FeedbackRequest,
 router = APIRouter(prefix="/api/v1", tags=["agentic-rag"])
 
 
+def _source_urls(sources: list) -> list[str]:
+    """Turn source records into the PDF links the response model expects."""
+    urls = []
+    for source in sources:
+        if isinstance(source, str):
+            urls.append(source)
+        elif isinstance(source, dict):
+            url = source.get("url") or source.get("pdf_url")
+            if url:
+                urls.append(url)
+    return urls
+
+
 @router.post("/ask-agentic", response_model=AgenticAskResponse)
 async def ask_agentic(
     request: AskRequest,
@@ -39,17 +52,19 @@ async def ask_agentic(
     try:
         result = await agentic_rag.ask(
             query=request.query,
+            model=request.model,
         )
 
         return AgenticAskResponse(
             query=result["query"],
             answer=result["answer"],
-            sources=result.get("sources", []),
+            sources=_source_urls(result.get("sources", [])),
             chunks_used=request.top_k,
             search_mode="hybrid" if request.use_hybrid else "bm25",
             reasoning_steps=result.get("reasoning_steps", []),
             retrieval_attempts=result.get("retrieval_attempts", 0),
             trace_id=result.get("trace_id"),
+            rewritten_query=result.get("rewritten_query"),
         )
 
     except ValueError as e:

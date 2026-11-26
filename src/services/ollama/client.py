@@ -304,3 +304,13 @@ class OllamaClient:
         except Exception as e:
             logger.error(f"Error generating streaming RAG answer: {e}")
             raise OllamaException(f"Failed to generate streaming RAG answer: {e}")
+
+    def get_langchain_model(self, model: str, temperature: float = 0.0):
+        """Return a LangChain chat model pointed at this Ollama server."""
+        from langchain_ollama import ChatOllama
+
+        return ChatOllama(
+            model=model,
+            base_url=self.base_url,
+            temperature=temperature,
+        )
