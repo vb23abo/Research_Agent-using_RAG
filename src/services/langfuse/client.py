@@ -176,7 +176,7 @@ class LangfuseTracer:
             return False
 
         try:
-            self.client.score(
+            self.client.create_score(
                 trace_id=trace_id,
                 name=name,
                 value=score,
@@ -206,14 +206,16 @@ class LangfuseTracer:
 
         span = None
         try:
-            span = self.client.span(
+            span = self.client.start_span(
                 name="rag_request",
                 input={"query": query},
-                metadata={
-                    **(metadata or {}),
-                    "user_id": user_id,
-                    "session_id": session_id,
-                },
+                metadata=metadata or {},
+            )
+            span.update_trace(
+                name="rag_request",
+                user_id=user_id,
+                session_id=session_id,
+                input={"query": query},
             )
         except Exception as e:
             logger.error(f"Error starting RAG trace: {e}")
@@ -235,7 +237,9 @@ class LangfuseTracer:
             return None
 
         try:
-            return self.client.span(name=name, input=input_data)
+            if hasattr(trace, "start_span"):
+                return trace.start_span(name=name, input=input_data)
+            return self.client.start_span(name=name, input=input_data)
         except Exception as e:
             logger.error(f"Error creating span: {e}")
             return None
@@ -294,17 +298,24 @@ class LangfuseTracer:
             yield None
             return
 
+        generation = None
         try:
-            generation = self.client.generation(
+            generation = self.client.start_generation(
                 name=name,
                 model=model,
                 input=input_data,
                 metadata=metadata or {},
             )
-            yield generation
         except Exception as e:
             logger.error(f"Error creating generation span: {e}")
-            yield None
+        try:
+            yield generation
+        finally:
+            if generation:
+                try:
+                    generation.end()
+                except Exception as e:
+                    logger.error(f"Error ending generation span: {e}")
 
     @contextmanager
     def start_span(
@@ -340,16 +351,23 @@ class LangfuseTracer:
             yield None
             return
 
+        span = None
         try:
-            span = self.client.span(
+            span = self.client.start_span(
                 name=name,
                 input=input_data,
                 metadata=metadata or {},
             )
-            yield span
         except Exception as e:
             logger.error(f"Error creating span: {e}")
-            yield None
+        try:
+            yield span
+        finally:
+            if span:
+                try:
+                    span.end()
+                except Exception as e:
+                    logger.error(f"Error ending span: {e}")
 
     def update_generation(
         self,
@@ -380,7 +398,7 @@ class LangfuseTracer:
             if usage_metadata:
                 # Add usage metadata following Langfuse format
                 if "prompt_tokens" in usage_metadata:
-                    update_data["usage"] = {
+                    update_data["usage_details"] = {
                         "input": usage_metadata.get("prompt_tokens", 0),
                         "output": usage_metadata.get("completion_tokens", 0),
                         "total": usage_metadata.get("total_tokens", 0),

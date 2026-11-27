@@ -5,7 +5,7 @@
 **Author:** Vijayalaxmi Bhambure ([@vb23abo](https://github.com/vb23abo))  
 **Version:** 1.0  
 **Status:** Active  
-**Last updated:** 2026-11-26  
+**Last updated:** 2026-11-27  
 **License:** MIT  
 
 ---
@@ -62,8 +62,8 @@ A production-oriented RAG system that:
 | G2 | Enable accurate hybrid retrieval over paper chunks | Relevant papers/chunks returned for research queries |
 | G3 | Deliver cited Q&A over ingested literature | Answers include arXiv PDF source links |
 | G4 | Support agentic retrieval (guardrails, grading, rewrite) | An in-domain question is answered with a source. An obvious out-of-domain question is refused. |
-| G5 | Provide usable interfaces for developers and end users | API docs and Gradio work. Telegram is optional and stays off without a token. |
-| G6 | Provide production ops basics | Health checks, Redis cache, and tests. Langfuse traces appear only after real keys are set. |
+| G5 | Provide usable interfaces for developers and end users | API docs, Gradio, and Telegram. The bot starts when a real token is set. |
+| G6 | Provide production ops basics | Health checks, Redis cache, tests, and Langfuse traces when keys are set. |
 
 ### 2.2 Non-goals (v1)
 
@@ -287,7 +287,7 @@ Detailed technical NFRs live in the [TRD](TRD.md). Product-level expectations:
 
 ## 11. Checked locally
 
-Checked on 26 November 2026 with the API, Postgres, OpenSearch, Redis, and Ollama `llama3.2:1b` running. The Airflow scheduler, Telegram, and Langfuse were not started.
+Checked on 26 November 2026 with the API, Postgres, OpenSearch, Redis, and Ollama `llama3.2:1b` running. Airflow, Telegram, and Langfuse were checked on 27 November 2026.
 
 | Check | Result |
 |-------|--------|
@@ -297,6 +297,9 @@ Checked on 26 November 2026 with the API, Postgres, OpenSearch, Redis, and Ollam
 | Classic RAG | One recorded question cited three indexed papers |
 | Agentic RAG | A weight-space programming question scored 75/100 and cited `2611.18553`. A cake-recipe question scored 40/100 and was refused |
 | Ingestion tasks | `fetch_daily_papers` and `index_papers_hybrid` stored `2611.34942` and indexed 12 chunks. `/ask` then cited that PDF |
+| Airflow scheduler, 27 November | The weekday DAG was unpaused. The 24 November slot fetched 15 papers, parsed 12 PDFs, and indexed 180 chunks. The next slot was marked failed while Docling was still parsing, before the zombie-task limit was raised to 7200 seconds |
+| Telegram, 27 November | `@arXiv_research_assistant_bot` started with a real token |
+| Langfuse, 27 November | The UI was healthy. One spectrum-adaptation question was stored as trace `rag_request` and cited `https://arxiv.org/pdf/2611.34942.pdf` |
 
 These choices are already in the code:
 

@@ -3,6 +3,8 @@ services:
   api:
     build: .
     container_name: rag-api
+    # One worker so the Telegram bot has a single polling connection.
+    command: ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
     ports:
       - "8000:8000"
     depends_on:
@@ -234,7 +236,7 @@ services:
       LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
       LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_MINIO_ACCESS_KEY}
       LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_SECRET_KEY}
-      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:9090
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
       LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
       LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
       REDIS_HOST: langfuse-redis
@@ -260,6 +262,7 @@ services:
     ports:
       - "3001:3000"
     environment:
+      HOSTNAME: "0.0.0.0"
       NEXTAUTH_URL: http://localhost:3001
       # Security: Load sensitive values from .env file
       NEXTAUTH_SECRET: ${LANGFUSE_NEXTAUTH_SECRET}
@@ -285,7 +288,7 @@ services:
       LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
       LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ${LANGFUSE_MINIO_ACCESS_KEY}
       LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: ${LANGFUSE_MINIO_SECRET_KEY}
-      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://localhost:9090
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
       LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
       LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
       REDIS_HOST: langfuse-redis
@@ -294,16 +297,33 @@ services:
       REDIS_TLS_ENABLED: "false"
       LANGFUSE_INIT_ORG_ID: "default-org"
       LANGFUSE_INIT_ORG_NAME: "RAG Organization"
+      LANGFUSE_INIT_PROJECT_ID: "arxiv-agent"
       LANGFUSE_INIT_PROJECT_NAME: "Agentic RAG"
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE__PUBLIC_KEY}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE__SECRET_KEY}
       LANGFUSE_INIT_USER_EMAIL: "admin@example.com"
       LANGFUSE_INIT_USER_NAME: "Admin User"
       LANGFUSE_INIT_USER_PASSWORD: "admin123"
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/public/health || exit 1"]
-      interval: 30s
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/api/public/health || exit 1"]
+      interval: 10s
       timeout: 10s
       retries: 5
-      start_period: 60s
+      start_period: 40s
+    networks:
+      - rag-network
+
+  langfuse-minio-init:
+    image: cgr.dev/chainguard/minio:latest
+    container_name: rag-langfuse-minio-init
+    depends_on:
+      langfuse-minio:
+        condition: service_healthy
+    environment:
+      MC_HOST_local: http://langfuse_minio:langfuse_minio_secret@langfuse-minio:9000
+    entrypoint: ["mc"]
+    command: ["mb", "--ignore-existing", "local/langfuse"]
+    restart: "no"
     networks:
       - rag-network
 
@@ -347,11 +367,10 @@ services:
       - rag-network
 
   langfuse-minio:
-    image: docker.io/minio/minio
+    image: cgr.dev/chainguard/minio:latest
     container_name: rag-langfuse-minio
     restart: unless-stopped
-    entrypoint: sh
-    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    command: server /data --address ":9000" --console-address ":9001"
     environment:
       - MINIO_ROOT_USER=langfuse_minio
       - MINIO_ROOT_PASSWORD=langfuse_minio_secret

@@ -1,8 +1,6 @@
 # arXiv Paper Curator
 
-**Agentic RAG research assistant for arXiv AI papers.**
-
-Ingests academic papers from arXiv, indexes them with hybrid search (BM25 + vectors), and answers research questions with cited sources — via REST API, Gradio UI, or Telegram.
+Fetches arXiv papers, parses the PDFs, stores them, and answers a question from the stored text with links to the source PDFs.
 
 **Demo:** [Local chat recording](recordings/arxiv-rag-demo.mov) — one question answered from three indexed papers (WeightBench, game-rule agents, and EEG/ECG), using hybrid search and three PDF sources.
 
@@ -10,14 +8,11 @@ Ingests academic papers from arXiv, indexes them with hybrid search (BM25 + vect
 
 ## Features
 
-- **Automated ingestion** — Daily Airflow pipeline fetches CS.AI papers, parses PDFs, and stores metadata
-- **Hybrid search** — Keyword (BM25) + semantic (Jina embeddings) retrieval with RRF fusion
-- **Classic RAG** — Retrieve relevant chunks and generate grounded answers with a local LLM (Ollama)
-- **Agentic RAG** — LangGraph workflow with guardrails, document grading, and query rewriting
-- **Streaming answers** — Server-Sent Events for real-time response delivery
-- **Observability** — Langfuse tracing for embed → search → generate, when keys are set. Answers still return if tracing is off.
-- **Response caching** — Redis exact-match cache for repeated queries
-- **Interfaces** — FastAPI docs, Gradio chat UI, optional Telegram bot
+- **Ingestion.** An Airflow DAG fetches a paper, parses the PDF, stores it, and indexes the chunks. The DAG has been run from the scheduler.
+- **Search.** Keyword and vector search over the stored text.
+- **Answer.** A local model answers from the matching passages and includes links to the source PDFs. The same answer is available from FastAPI, Gradio, and Telegram.
+- **Agent path.** The agent checks the question, grades the passages, and rewrites the query when they do not fit.
+- **Trace.** Langfuse records the embedding, the search, and the answer. The reply is still returned if tracing is off.
 
 ---
 
@@ -97,7 +92,7 @@ For product scope and technical design, see:
 - [UV](https://docs.astral.sh/uv/getting-started/installation/)
 - 8GB+ RAM, 20GB+ free disk
 - Jina API key (for hybrid/semantic search)
-- Optional: a Telegram bot token, and real Langfuse keys if you want traces shown
+- Optional: a Telegram bot token, and Langfuse keys if you want traces shown
 
 ---
 
@@ -111,7 +106,9 @@ cd Research_Agent-using_RAG
 # 2. Configure
 cp .env.example .env
 # Set JINA_API_KEY (required for hybrid search)
-# Telegram and Langfuse stay off until you set a real token and real keys
+# Telegram starts only when TELEGRAM__ENABLED=true and TELEGRAM__BOT_TOKEN is a real token
+# Tracing starts when LANGFUSE__PUBLIC_KEY and LANGFUSE__SECRET_KEY are set
+# Inside Compose, LANGFUSE__HOST is http://langfuse-web:3000
 
 # 3. Install dependencies
 uv sync
@@ -133,7 +130,7 @@ First boot can take a few minutes while images pull and services become healthy.
 |---------|-----|---------|
 | API & Swagger | http://localhost:8000/docs | Interactive API |
 | Gradio UI | http://localhost:7861 | Chat interface (`uv run python gradio_launcher.py`) |
-| Langfuse | http://localhost:3001 | Pipeline tracing |
+| Langfuse | http://localhost:3001 | Pipeline tracing. Sign in `admin@example.com` / `admin123`. Project name: Agentic RAG |
 | Airflow | http://localhost:8080 | Ingestion DAGs |
 | OpenSearch Dashboards | http://localhost:5601 | Index inspection |
 | OpenSearch | http://localhost:9200 | Search API |
@@ -213,7 +210,7 @@ Copy `.env.example` → `.env`. Important variables:
 | `TELEGRAM__ENABLED` | No | Set `true` to start the bot |
 | `OLLAMA_MODEL` | No | Default `llama3.2:1b` |
 | `ARXIV__SEARCH_CATEGORY` | No | Default `cs.AI` |
-| `LANGFUSE_*` | No | Tracing (self-hosted via Compose) |
+| `LANGFUSE__PUBLIC_KEY`, `LANGFUSE__SECRET_KEY` | No | Tracing. The API ignores the single-underscore names |
 
 See `.env.example` for the full list.
 
@@ -254,9 +251,11 @@ The `arxiv_paper_ingestion` Airflow DAG (weekdays 06:00 UTC by default):
 4. Chunk, embed, and index into OpenSearch (hybrid)  
 5. Generate a daily report and clean temp PDFs  
 
-Trigger manually from the Airflow UI if you need an immediate backfill. PDFs longer than 30 pages are stored from the abstract and are not parsed.
+Trigger manually from the Airflow UI if you need an immediate backfill. PDFs longer than 30 pages are stored from the abstract and are not parsed. Docling can hold the CPU for several minutes, so `AIRFLOW__SCHEDULER__SCHEDULER_ZOMBIE_TASK_THRESHOLD` is 7200 seconds. The Airflow image pins CPU `torch==2.8.0` so the install does not pull CUDA libraries.
 
 The fetch and index task functions were run once on 26 November 2026 for a single `cs.AI` paper (`2611.34942`) without starting the Airflow scheduler. That run stored the paper and indexed 12 chunks. A later `/ask` cited `https://arxiv.org/pdf/2611.34942.pdf`.
+
+On 27 November 2026 the scheduler was running and `arxiv_paper_ingestion` was unpaused. The weekday run for the 24 November papers fetched 15 papers, parsed 12 PDFs, and indexed 180 chunks. Three PDFs returned no Docling result (`2611.33493`, `2611.33470`, `2611.33417`). The following weekday slot was marked failed while Docling was still parsing, because the scheduler's old 300 second zombie limit had not yet been raised.
 
 ---
 
@@ -267,7 +266,7 @@ The fetch and index task functions were run once on 26 November 2026 for a singl
 | Services not ready | Wait 2–3 min; `docker compose logs -f` |
 | Port conflicts | Free 8000, 8080, 5432, 9200, 11434, 3001, 7861 |
 | Hybrid search fails | Confirm `JINA_API_KEY` in `.env` |
-| Telegram silent | `TELEGRAM__ENABLED=true` + valid bot token; check `docker compose logs api` |
+| Telegram silent | `TELEGRAM__ENABLED=true` and a real bot token. Compose runs the API with one worker so the bot has one polling connection. Check `docker compose logs api` |
 | OOM / slow Docker | Increase Docker Desktop memory (8GB+) |
 | Hard reset | `docker compose down -v && docker compose up --build -d` |
 
@@ -285,6 +284,15 @@ Checked on 26 November 2026 against the core stack (API, Postgres, OpenSearch, R
 | Classic RAG | The [demo recording](recordings/arxiv-rag-demo.mov) shows one question answered from three papers, with three PDF sources |
 | Agentic RAG | A weight-space programming question scored 75/100, retrieved a paper, and cited `https://arxiv.org/pdf/2611.18553v1.pdf`. A chocolate-cake question scored 40/100 and was refused |
 | Ingestion tasks | One new paper fetched, parsed, stored, and indexed, then cited by `/ask` |
+
+Checked again on 27 November 2026 with the same core stack, plus the Airflow scheduler, Telegram, and Langfuse.
+
+| Check | Result |
+|-------|--------|
+| Airflow | Scheduler healthy. The weekday DAG was unpaused. The 24 November slot stored 15 papers and indexed 180 chunks |
+| Telegram | Bot `@arXiv_research_assistant_bot` started and accepted the token |
+| Langfuse | UI healthy at http://localhost:3001. One `/ask` about spectrum adaptation was stored as trace `rag_request`, with embedding, search, prompt, and generation steps, and cited `https://arxiv.org/pdf/2611.34942.pdf` |
+| Gradio | http://localhost:7861 returned the chat page |
 
 ## Author
 

@@ -5,7 +5,7 @@
 **Author:** Vijayalaxmi Bhambure ([@vb23abo](https://github.com/vb23abo))  
 **Version:** 1.0  
 **Status:** Active  
-**Last updated:** 2026-11-26  
+**Last updated:** 2026-11-27  
 **License:** MIT  
 **Companion:** [PRD](PRD.md)
 
@@ -106,6 +106,7 @@ On API startup (`main.py` lifespan):
 | Version | From `APP_VERSION` / settings |
 | Docs | `/docs`, `/redoc` |
 | Prefix | `/api/v1` for versioned routes |
+| Workers | Compose starts one uvicorn worker so the Telegram bot has a single polling connection |
 
 ### 4.2 Ingestion (Airflow)
 
@@ -128,6 +129,8 @@ On API startup (`main.py` lifespan):
 The arXiv client sends `User-Agent: arXiv-Paper-Curator/0.1.0 (local research agent)` on API and PDF requests.
 
 On 26 November 2026 the fetch and index task functions were called directly for one `cs.AI` paper dated 25 November 2026 (`2611.34942`). The PDF was parsed, the paper was stored, and 12 chunks were indexed. The Airflow scheduler and web UI were not started for that check.
+
+On 27 November 2026 the scheduler was running, the UI was up, and `arxiv_paper_ingestion` was unpaused. The weekday run for 24 November fetched 15 papers, parsed 12 PDFs, and indexed 180 chunks. Three PDFs returned no Docling result. The next slot was marked failed while Docling was still parsing, because `scheduler_zombie_task_threshold` was still the default 300 seconds. The setting is now 7200 seconds. The Airflow image pins CPU `torch==2.8.0`, `torchvision==0.23.0`, and `docling==2.52.0`.
 
 ### 4.3 PDF parsing
 
@@ -247,7 +250,11 @@ Self-hosted Langfuse v3 stack in Compose (web, worker, Postgres, Redis, ClickHou
 |------|------|
 | Integration | `src/services/langfuse/` |
 | Use | Trace RAG and agentic pipelines; optional feedback by `trace_id` |
-| Toggle | A client is created only when `enabled` is true and both the public and secret keys are set. Empty or placeholder keys leave tracing off. Q&A does not wait on Langfuse. |
+| Settings | The API reads `LANGFUSE__ENABLED`, `LANGFUSE__HOST`, `LANGFUSE__PUBLIC_KEY`, and `LANGFUSE__SECRET_KEY`. Single-underscore names are ignored. Inside Compose the host is `http://langfuse-web:3000`. The browser UI is `http://localhost:3001`. |
+| First boot | `langfuse-web` creates org `default-org`, project `arxiv-agent` (Agentic RAG), user `admin@example.com` / `admin123`, and the API key pair from `LANGFUSE__PUBLIC_KEY` and `LANGFUSE__SECRET_KEY`. |
+| Object storage | MinIO image `cgr.dev/chainguard/minio`. `langfuse-minio-init` creates the `langfuse` bucket. |
+| Client | Langfuse Python SDK 3. Spans use `start_span` and `start_generation`. Feedback uses `create_score`. A tracing failure does not fail the answer. |
+| Checked | 27 November 2026. One `/ask` was stored as `rag_request` with embedding, search, prompt, and generation steps. |
 
 ### 4.12 Telegram bot
 
@@ -255,7 +262,7 @@ Self-hosted Langfuse v3 stack in Compose (web, worker, Postgres, Redis, ClickHou
 |------|------|
 | Library | `python-telegram-bot` 21.x |
 | Mode | Polling (dev); webhook supported via config |
-| Enable | `TELEGRAM__ENABLED=true` plus a real `TELEGRAM__BOT_TOKEN`. The default is off. The 26 November check did not start the bot. |
+| Enable | `TELEGRAM__ENABLED=true` plus a real `TELEGRAM__BOT_TOKEN`. The default in `.env.example` is off. On 27 November 2026 `@arXiv_research_assistant_bot` started. |
 | Lifecycle | Started/stopped in FastAPI lifespan |
 | Features | Commands (`/start`, `/help`, `/ask`, `/search`, `/settings`, `/status`, …), free-text RAG, Markdown formatting |
 
@@ -407,7 +414,7 @@ Settings are loaded via Pydantic Settings (`src/config.py`) from `.env`, with ne
 | `JINA_API_KEY` | Embeddings |
 | `OLLAMA_*` | Host, model, timeout |
 | `REDIS__*` | Cache host + TTL |
-| `LANGFUSE_*` / `LANGFUSE__*` | Tracing |
+| `LANGFUSE__*` | Tracing. `LANGFUSE__HOST` inside Compose is `http://langfuse-web:3000` |
 | `TELEGRAM__*` | Bot enablement and token |
 | `ENVIRONMENT` | `development` \| `staging` \| `production` |
 
@@ -502,7 +509,7 @@ uv run python gradio_launcher.py
 | `ollama` | `rag-ollama` | 11434 |
 | `redis` | `rag-redis` | 6379 |
 | `langfuse-web` | `rag-langfuse-web` | 3001→3000 |
-| Langfuse deps | worker, postgres, redis, clickhouse, minio | various |
+| Langfuse deps | worker, postgres, redis, clickhouse, minio, minio-init | various |
 
 Network: `rag-network` (bridge).
 
@@ -579,21 +586,21 @@ Custom exceptions: `src/exceptions.py` (`MetadataFetchingException`, `PipelineEx
 5. Hybrid search requires external Jina key.  
 6. Corpus limited by configured category, `max_results`, and PDF parse limits. No retention policy deletes old papers.  
 7. Langfuse Compose defaults include development secrets — must be rotated for any shared environment.  
-8. The weekday DAG is defined, and its fetch and index functions have been run once outside the scheduler. A scheduled run from the Airflow UI has not been recorded.  
+8. One weekday DAG run has completed from the scheduler. A later slot was marked failed while Docling was still parsing, before the zombie-task limit was raised to 7200 seconds. That later slot was not run again.  
 9. The small default model can score a short research question near the guardrail threshold of 60. A score under 60 is refused.
 
 ---
 
 ## 14. Compliance with PRD
 
-| PRD goal | Technical coverage | Checked on 26 November 2026 |
-|----------|-------------------|------------------------------|
-| G1 Ingestion | Airflow DAG + MetadataFetcher + Postgres | Fetch and index functions stored and indexed one paper. The scheduler was not started. |
+| PRD goal | Technical coverage | Checked |
+|----------|-------------------|--------|
+| G1 Ingestion | Airflow DAG + MetadataFetcher + Postgres | 26 November: fetch and index functions stored one paper. 27 November: the scheduler completed the 24 November weekday slot (15 papers, 180 chunks). |
 | G2 Hybrid retrieval | OpenSearch hybrid index + Jina + RRF | Hybrid search returned the new paper and the earlier demo papers. |
 | G3 Cited Q&A | `/ask`, `/stream` + source URL construction | `/ask` cited the new paper. The three-paper demo is recorded. |
-| G4 Agentic behavior | LangGraph nodes in `services/agents/` | One in-domain answer with a PDF link, and one out-of-domain refusal. |
-| G5 Interfaces | FastAPI, Gradio, Telegram | API and the recorded Gradio chat. Telegram was left off. |
-| G6 Ops basics | Redis, Langfuse, healthchecks, tests, Compose | Health was ok. 120 tests passed. Langfuse was left off. |
+| G4 Agentic behavior | LangGraph nodes in `services/agents/` | 26 November: one in-domain answer with a PDF link, and one out-of-domain refusal. |
+| G5 Interfaces | FastAPI, Gradio, Telegram | API and the recorded Gradio chat. 27 November: `@arXiv_research_assistant_bot` started, and Gradio returned the chat page. |
+| G6 Ops basics | Redis, Langfuse, healthchecks, tests, Compose | 26 November: health was ok and 120 tests passed. 27 November: Langfuse stored one `rag_request` trace. |
 
 ---
 

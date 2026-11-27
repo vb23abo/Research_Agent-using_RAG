@@ -37,3 +37,5 @@ airflow/
 The UI is at http://localhost:8080. The first start creates an admin user with username `admin` and password `admin`.
 
 On 26 November 2026, `fetch_daily_papers` and `index_papers_hybrid` were run directly, with `max_results` set to 1, for the `cs.AI` papers of 25 November 2026. Paper `2611.34942` was parsed, stored, and indexed as 12 chunks. The Airflow scheduler was not started for that check. A PDF over 30 pages is stored from the abstract.
+
+On 27 November 2026 the scheduler was running and `arxiv_paper_ingestion` was unpaused. The weekday run for 24 November fetched 15 `cs.AI` papers, parsed 12 PDFs, and indexed 180 chunks. Three PDFs returned no Docling result. The next weekday slot was marked failed while a PDF parse was still running, because the scheduler zombie limit was still 300 seconds. `.env.example` now sets `AIRFLOW__SCHEDULER__SCHEDULER_ZOMBIE_TASK_THRESHOLD=7200`. `requirements-airflow.txt` pins CPU `torch==2.8.0` and `docling==2.52.0`.
